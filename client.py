@@ -14,7 +14,8 @@ class FileTransferClient(wx.Frame):
         self.InitUI()
 
     def InitUI(self):
-        panel = wx.Panel(self)
+        # Create panel of at least 500x500 pixels and centered on the screen
+        panel = wx.Panel(self, size=(700, 500), pos=(0, 0))
         vbox = wx.BoxSizer(wx.VERTICAL)
         
         self.listbox = wx.ListBox(panel)
@@ -25,10 +26,12 @@ class FileTransferClient(wx.Frame):
         downloadItem = self.popupMenu.Append(-1, 'Descargar')
         renameItem = self.popupMenu.Append(-1, 'Renombrar')
         deleteItem = self.popupMenu.Append(-1, 'Eliminar')
+        copyItem = self.popupMenu.Append(-1, 'Copiar')
         
         self.Bind(wx.EVT_MENU, self.download_file, downloadItem)
         self.Bind(wx.EVT_MENU, self.rename_file, renameItem)
         self.Bind(wx.EVT_MENU, self.delete_file, deleteItem)
+        self.Bind(wx.EVT_MENU, self.copy_file, copyItem)
         self.listbox.Bind(wx.EVT_CONTEXT_MENU, self.showPopupMenu)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
@@ -56,14 +59,21 @@ class FileTransferClient(wx.Frame):
         pos = self.listbox.ScreenToClient(event.GetPosition())
         self.listbox.PopupMenu(self.popupMenu, pos)
     
+    def copy_file(self, event):
+        selected_file = self.listbox.GetString(self.listbox.GetSelection())
+        if selected_file:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((HOST, PORT_META))
+                s.send(f'COPY_REMOTE|{selected_file}'.encode())
+        self.list_remote_files(self)
+    
     def upload_folder(self, event):
         with wx.DirDialog(self, "Elige una carpeta", style=wx.DD_DEFAULT_STYLE) as dirDialog:
             if dirDialog.ShowModal() == wx.ID_CANCEL:
                 return
-            dirname = dirDialog.GetPath()
-            if dirname:
+            if dirname := dirDialog.GetPath():
                 os.chdir(os.path.dirname(dirname))
-                zipname = os.path.basename(dirname) + '_serverzipped.zip'
+                zipname = f'{os.path.basename(dirname)}_serverzipped.zip'
                 with zipfile.ZipFile(zipname, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
                     for foldername, subfolders, filenames in os.walk(os.path.basename(dirname)):
                         for file in filenames:
@@ -130,6 +140,8 @@ class FileTransferClient(wx.Frame):
                     with zipfile.ZipFile(filepath, 'r') as zip_ref:
                         zip_ref.extractall(DOWNLOAD_FOLDER)
                     os.remove(filepath)
+        # when the file is finished downloading, show a message box
+        wx.MessageBox(f'Archivo {filename} descargado en {DOWNLOAD_FOLDER}', 'Descarga finalizada', wx.OK | wx.ICON_INFORMATION)
 
     def rename_file(self, event):
         selected_file = self.listbox.GetString(self.listbox.GetSelection())

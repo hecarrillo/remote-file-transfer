@@ -8,6 +8,7 @@ PORT_META = 8000
 PORT_DATA = 8001
 REMOTE_FOLDER = 'remote_folder/'
 
+
 def handle_client_meta(conn):
     while True:
         cmd = conn.recv(1024).decode()
@@ -20,7 +21,6 @@ def handle_client_meta(conn):
                 conn.send('NO_FILES'.encode())
             else:
                 conn.send(','.join(files).encode())
-
 
         elif cmd.startswith('UPLOAD_FILE') or cmd.startswith('UPLOAD_FOLDER'):
             _, filename = cmd.split('|')
@@ -54,7 +54,8 @@ def handle_client_meta(conn):
                             for file in filenames:
                                 zip_ref.write(os.path.join(foldername, file))
                     server_path = zipname
-                conn.send(f'READY_TO_SEND|{os.path.basename(server_path)}'.encode())
+                conn.send(
+                    f'READY_TO_SEND|{os.path.basename(server_path)}'.encode())
                 data_conn, _ = ds.accept()
                 with data_conn:
                     with open(server_path, 'rb') as f:
@@ -72,9 +73,25 @@ def handle_client_meta(conn):
                 os.remove(os.path.join(REMOTE_FOLDER, filename))
             conn.send('FILE_DELETED'.encode())
 
+        elif cmd.startswith('COPY_REMOTE'):  # Ensure it starts with, not equals
+            _, filename = cmd.split('|')
+
+            src_path = os.path.join(REMOTE_FOLDER, filename)
+            dest_path = os.path.join(REMOTE_FOLDER, f'copy_{filename}')
+            
+            if os.path.isdir(src_path): 
+                shutil.copytree(src_path, dest_path)
+            else:
+                shutil.copy(src_path, dest_path)
+            
+            conn.send('FILE_COPIED'.encode())
+
+
+
         elif cmd.startswith('RENAME_REMOTE'):
             _, old_name, new_name = cmd.split('|')
-            os.rename(os.path.join(REMOTE_FOLDER, old_name), os.path.join(REMOTE_FOLDER, new_name))
+            os.rename(os.path.join(REMOTE_FOLDER, old_name),
+                      os.path.join(REMOTE_FOLDER, new_name))
             conn.send('FILE_RENAMED'.encode())
 
 
@@ -83,6 +100,7 @@ def init_data_stream(ds):
     ds.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     ds.bind((HOST, PORT_DATA))
     ds.listen()
+
 
 def start_server():
     if not os.path.exists(REMOTE_FOLDER):
@@ -98,6 +116,7 @@ def start_server():
             with conn:
                 print(f"Connected by {addr}")
                 handle_client_meta(conn)
+
 
 if __name__ == "__main__":
     start_server()
