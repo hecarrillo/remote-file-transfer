@@ -20,7 +20,7 @@ class FileTransferClient(wx.Frame):
         self.listbox = wx.ListBox(panel)
         vbox.Add(self.listbox, 1, flag=wx.EXPAND)
         
-        # Crear menú contextual
+        # Create context menu
         self.popupMenu = wx.Menu()
         downloadItem = self.popupMenu.Append(-1, 'Descargar')
         renameItem = self.popupMenu.Append(-1, 'Renombrar')
@@ -56,32 +56,30 @@ class FileTransferClient(wx.Frame):
         pos = self.listbox.ScreenToClient(event.GetPosition())
         self.listbox.PopupMenu(self.popupMenu, pos)
     
-    # compress the selected folder and send it as a zip
     def upload_folder(self, event):
         with wx.DirDialog(self, "Elige una carpeta", style=wx.DD_DEFAULT_STYLE) as dirDialog:
             if dirDialog.ShowModal() == wx.ID_CANCEL:
                 return
-            if dirname := dirDialog.GetPath():
-                # Change to the parent directory of the folder to be zipped
+            dirname = dirDialog.GetPath()
+            if dirname:
                 os.chdir(os.path.dirname(dirname))
-                # Create a zip file with the suffix "_serverzipped"
-                zipname = f'{os.path.basename(dirname)}_serverzipped.zip'
+                zipname = os.path.basename(dirname) + '_serverzipped.zip'
                 with zipfile.ZipFile(zipname, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
                     for foldername, subfolders, filenames in os.walk(os.path.basename(dirname)):
                         for file in filenames:
                             zip_ref.write(os.path.join(foldername, file))
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    response = (
-                        self._extracted_from__extracted_from_download_file__15(
-                            s, 'UPLOAD_FOLDER|', zipname
-                        )
-                    )
+                    s.connect((HOST, PORT_META))
+                    s.send(f'UPLOAD_FOLDER|{zipname}'.encode())
+                    response = s.recv(1024).decode()
                     if response == 'READY_TO_RECEIVE':
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ds:
                             ds.connect((HOST, PORT_DATA))
                             with open(zipname, 'rb') as f:
-                                while data := f.read(1024):
+                                data = f.read(1024)
+                                while data:
                                     ds.send(data)
+                                    data = f.read(1024)
                 os.remove(zipname)
         self.list_remote_files(self)
 
@@ -90,11 +88,9 @@ class FileTransferClient(wx.Frame):
             s.connect((HOST, PORT_META))
             s.send('LIST_REMOTE'.encode())
             files = s.recv(1024).decode().split(',')
-            print("files: ", files)
-            if files != ['']:
-                self.listbox.Clear()
-                for file in files:
-                    self.listbox.Append(file)
+            self.listbox.Clear()
+            for file in files:
+                self.listbox.Append(file)
 
     def upload_file(self, event):
         with wx.FileDialog(self, "Elige un archivo", wildcard="All files (*.*)|*.*", style=wx.FD_OPEN) as fileDialog:
@@ -103,11 +99,9 @@ class FileTransferClient(wx.Frame):
             if filepath := fileDialog.GetPath():
                 filename = os.path.basename(filepath)
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    response = (
-                        self._extracted_from__extracted_from_download_file__15(
-                            s, 'UPLOAD_FILE|', filename
-                        )
-                    )
+                    s.connect((HOST, PORT_META))
+                    s.send(f'UPLOAD_FILE|{filename}'.encode())
+                    response = s.recv(1024).decode()
                     if response == 'READY_TO_RECEIVE':
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ds:
                             ds.connect((HOST, PORT_DATA))
@@ -122,42 +116,24 @@ class FileTransferClient(wx.Frame):
         ):
             return
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            self._extracted_from_download_file_(s, selected_file)
-
-    def _extracted_from_download_file_(self, s, selected_file):
-        response = self._extracted_from__extracted_from_download_file__15(
-            s, 'DOWNLOAD_FILE|', selected_file
-        )
-        if response.startswith('READY_TO_SEND'):
-            actual_filename = response.split('|')[1]  # Extract the actual filename from the server's response
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ds:
-                ds.connect((HOST, PORT_DATA))
-                # Create 'downloads' directory if it doesn't exist
-                if not os.path.exists(DOWNLOAD_FOLDER):
-                    os.mkdir(DOWNLOAD_FOLDER)   
-                filepath = os.path.join(DOWNLOAD_FOLDER, actual_filename)
-                with open(filepath, 'wb') as f:
-                    while data := ds.recv(1024):
-                        f.write(data)
-                ds.close()
-            # Check if the received zip file has the "_serverzipped" suffix
-            if actual_filename.endswith('_serverzipped.zip'): 
-                # unzip the folder
-                with zipfile.ZipFile(filepath, 'r') as zip_ref:
-                    zip_ref.extractall(DOWNLOAD_FOLDER)
-                # delete the zip file
-                os.remove(filepath)
-
-    # TODO Rename this here and in `upload_folder`, `upload_file` and `_extracted_from_download_file_`
-    def _extracted_from__extracted_from_download_file__15(self, s, arg1, arg2):
-        s.connect((HOST, PORT_META))
-        s.send(f'{arg1}{arg2}'.encode())
-        return s.recv(1024).decode()
-
-
+            s.connect((HOST, PORT_META))
+            s.send(f'DOWNLOAD_FILE|{selected_file}'.encode())
+            response, filename = s.recv(1024).decode().split('|')
+            if response.startswith('READY_TO_SEND'):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ds:
+                    ds.connect((HOST, PORT_DATA))
+                    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+                    with open(filepath, 'wb') as f:
+                        while data := ds.recv(1024):
+                            f.write(data)
+                if filename.endswith('_serverzipped.zip'):
+                    with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                        zip_ref.extractall(DOWNLOAD_FOLDER)
+                    os.remove(filepath)
 
     def rename_file(self, event):
-        if selected_file := self.listbox.GetString(self.listbox.GetSelection()):
+        selected_file = self.listbox.GetString(self.listbox.GetSelection())
+        if selected_file:
             renameDialog = wx.TextEntryDialog(self, 'Nuevo nombre:', 'Renombrar archivo', selected_file)
             if renameDialog.ShowModal() == wx.ID_OK:
                 new_name = renameDialog.GetValue()
@@ -167,7 +143,8 @@ class FileTransferClient(wx.Frame):
         self.list_remote_files(self)
 
     def delete_file(self, event):
-        if selected_file := self.listbox.GetString(self.listbox.GetSelection()):
+        selected_file = self.listbox.GetString(self.listbox.GetSelection())
+        if selected_file:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((HOST, PORT_META))
                 s.send(f'DELETE_REMOTE|{selected_file}'.encode())
@@ -184,3 +161,4 @@ if __name__ == '__main__':
     frame = FileTransferClient(None, title='Cliente de Transferencia de Archivos')
     frame.Show()
     app.MainLoop()
+

@@ -15,8 +15,12 @@ def handle_client_meta(conn):
             break
 
         if cmd == 'LIST_REMOTE':
-            files = os.listdir(REMOTE_FOLDER) or ['']
-            conn.send(','.join(files).encode())
+            files = os.listdir(REMOTE_FOLDER)
+            if not files:  # If the list is empty
+                conn.send('NO_FILES'.encode())
+            else:
+                conn.send(','.join(files).encode())
+
 
         elif cmd.startswith('UPLOAD_FILE') or cmd.startswith('UPLOAD_FOLDER'):
             _, filename = cmd.split('|')
